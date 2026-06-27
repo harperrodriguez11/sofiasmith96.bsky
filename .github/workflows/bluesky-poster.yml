@@ -1,0 +1,58 @@
+name: Bluesky Auto Poster
+
+on:
+  schedule:
+    # Runs exactly 3 times per day, 8 hours apart (UTC):
+    # 00:00, 08:00, 16:00
+    - cron: "0 0,8,16 * * *"
+  workflow_dispatch: {}   # manual trigger from the Actions tab
+
+# Only one instance at a time — new runs wait; they don't cancel
+concurrency:
+  group: bluesky-poster
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15   # Each run should complete quickly (one post per trigger)
+    
+    steps:
+      - name: Check IP address
+        run: |
+          IP=$(curl -s https://api.ipify.org)
+          echo "Runner public IP: $IP"
+          echo "RUNNER_IP=$IP" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"   # cache dependencies between runs for speed
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install \
+            google-api-python-client \
+            google-auth-httplib2 \
+            google-auth-oauthlib \
+            atproto
+
+      - name: Verify token.pickle is present
+        run: |
+          if [ ! -s token.pickle ]; then
+            echo "::error::token.pickle not found or empty. Commit it to the repo root and ensure it's not in .gitignore."
+            exit 1
+          fi
+          echo "token.pickle found ($(stat -c%s token.pickle) bytes)"
+
+      - name: Run poster
+        run: python -u post_bluesky.py
+        env:
+          PYTHONUNBUFFERED: "1"
+          BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}
+          BSKY_APP_PW: ${{ secrets.BSKY_APP_PW }}
+          UPLOAD_FOLDER_ID: ${{ secrets.UPLOAD_FOLDER_ID }}
+          PROCESSED_FOLDER_ID: ${{ secrets.PROCESSED_FOLDER_ID }}
